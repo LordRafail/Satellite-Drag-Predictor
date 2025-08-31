@@ -1,6 +1,11 @@
 % uncertainty_drag_vs_altitude_tiered_pct_range.m
-% (prediction sweep; aligned with main script's logic)
-
+% 
+% Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 clear; clc;
 % rng(42);  % reproducible draws
 
@@ -1272,3 +1277,4 @@ fprintf('NRLMSISE-00 density %% by altitude (last eval):  min/median/max = %.0f%
 % Optional: show which θ set you used for mosaics/plots
 fprintf('\nNsim=%d; altitude points=%d (%.0f–%.0f km); angles = {%s} deg\n\n', ...
         Nsim, nAlt, alt_vec(1)/1e3, alt_vec(end)/1e3, num2str(THETA.centers_deg));
+
