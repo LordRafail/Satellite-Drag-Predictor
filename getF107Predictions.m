@@ -1,9 +1,14 @@
 function [f107_avg, f107_daily] = getF107Predictions(targetDates)
 % F10.7 (previous-day) and centered 81-day avg using:
 %   SWPC 45-day forecast (preferred when available) -> CelesTrak observations
-% No monthly JSON. No linear interpolation.
 %
 % IMPORTANT: targetDates are treated as UTC midnights.
+% Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 
   if ~isa(targetDates,'datetime'), error('targetDates must be datetime'); end
   targetDates = dateshift(targetDates(:),'start','day'); 
@@ -112,3 +117,4 @@ function [dates45, f45] = loadSWPC45DayF107()
   [d, s] = sort(d); v = v(s);
   [dates45, ia] = unique(d,'last'); f45 = v(ia);
 end
+
