@@ -243,3 +243,4 @@ function [monDates, monAp] = loadNASAapMonthly()
   Y=floor(yf); mon=floor((yf-Y)*12)+1; mon=max(1,min(12,mon));
   monDates=datetime(Y,mon,1,0,0,0,'TimeZone','UTC'); monAp=mn;
 end
+
