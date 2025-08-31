@@ -8,6 +8,14 @@ function T = getF107Delta90(startDate, endDate)
 %   F            : predicted smoothed monthly F10.7
 %   L5, H95      : 5th and 95th percentile bounds
 %   Delta90_pct  : ((H95 - L5) / (2*F)) * 100    <-- single % per month
+%
+% 
+% Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 
     % Inputs & timezone (Month is UTC; match filters to UTC to avoid warnings)
     if nargin < 1 || isempty(startDate), startDate = datetime(1900,1,1); end
@@ -57,3 +65,4 @@ function c = getCellField(S, candidates)
     end
     error('Expected string/cell field not found. Tried: %s', strjoin(candidates, ', '));
 end
+
