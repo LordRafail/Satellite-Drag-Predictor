@@ -23,6 +23,14 @@ function [ap_out, usedBinUTC, source_out] = getApPredictions(targetDates)
 %   Notes
 %     • Everything is in UTC.
 %     • Network fetches are time-bounded to avoid hanging.
+%
+%
+% Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 
   if ~isa(targetDates,'datetime'), error('targetDates must be datetime'); end
   qTimes = toUTC(targetDates(:));
@@ -243,4 +251,5 @@ function [monDates, monAp] = loadNASAapMonthly()
   Y=floor(yf); mon=floor((yf-Y)*12)+1; mon=max(1,min(12,mon));
   monDates=datetime(Y,mon,1,0,0,0,'TimeZone','UTC'); monAp=mn;
 end
+
 
