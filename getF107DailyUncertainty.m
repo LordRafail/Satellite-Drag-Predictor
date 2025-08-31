@@ -13,6 +13,14 @@ function T = getF107DailyUncertainty(method, first7)
 %   
 %
 % Source format confirmed here (single-line with AP + F10.7 blocks). :contentReference[oaicite:0]{index=0}
+%
+%
+%  Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 
     if nargin < 1 || isempty(method), method = 'pchip'; end
     if nargin < 2 || isempty(first7), first7 = [4.2 6.1 7.8 9.3 10.5 11.7 12.7]; end
@@ -68,3 +76,4 @@ function T = getF107DailyUncertainty(method, first7)
     % 6) Assemble output
     T = table(dates, d, vals, Unc, 'VariableNames', {'Date','DayAhead','F107','Uncertainty_pct'});
 end
+
