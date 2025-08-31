@@ -1,11 +1,11 @@
 % uncertainty_drag_vs_altitude_tiered_pct_range.m
 % Monte-Carlo uncertainty of C_D vs altitude (DRIA & CLL) with:
 %   • F10.7 uncertainties
-%       - Observed: fixed 1–2% half-width (your original rule)
+%       - Observed: fixed 1–2% half-width 
 %       - Predicted: SWPC helpers
 %           getF107DailyUncertainty.m (45d daily %; days 8–45 interpolated)
-%           getF107Delta90.m          (monthly JSON %)
-%   • Ap uncertainty (tiered ranges; unchanged)
+%           
+%   • Ap uncertainty 
 %   • G.5-based NRLMSISE-00 density model uncertainty
 %
 % Requires on path: environment.m, coeff_DRIA.m, coeff_CLL.m, accom_SESAM.m,
@@ -35,8 +35,8 @@ THETA.jitter_sigma_deg = 0;          % set >0 to add small jitter around each ce
 CFG_PCT.select_mode = 'rand';    % 'rand' or 'mid'
 
 % F10.7 — observed only
-PCT.F107avg.observed   = [1 2];   % %
-PCT.F107daily.observed = [1 2];   % %
+PCT.F107avg.observed   = [1 2];   %
+PCT.F107daily.observed = [1 2];   %
 
 % Magnetic Index, Ap — 3 tiers 
 DELTA.Ap.observed = 4;    % ±4 Ap units
@@ -91,17 +91,44 @@ end
 % Used to decide observed vs predicted for F10.7/Ap and for density % scaling.
 %This is a 80 day window, centered around the simulation date.
 wStart = dateshift(simDate,'start','day') - days(40);
-wEnd   = dateshift(simDate,'start','day') + days(40);
-% This makes sure the days beofer the simulation date are not counted as 0.
-horizon_days = max(0, days(wEnd - todayDate));
-% This will classify the uncertainty used for the F10.7 predicitons,
-% depending on how far in the past or the future the horizon days are. 
-catF107avg   = classifyF107Tier(horizon_days);
+    % === Tier selection relative to simDate (not today) ===
+    simDay0   = dateshift(simDate,  'start','day');
+    thisDay0  = dateshift(simDate,'start','day');
+    days_ahead = days(thisDay0 - simDay0);   % <0: before simDate, 0: simDate, >0: after
 
-% Identifies the classificatio of the uncertainties that will be used. 
-lead_prev_days = days((simDate - days(1)) - todayDate);
-catF107daily   = classifyF107Tier( max(0, lead_prev_days) );
-catAp          = classifyApTier(   max(0, lead_prev_days) );
+    if days_ahead < 0
+        % ---- strictly BEFORE simDate -> observed everywhere ----
+        catF107avg   = 'observed';
+        catF107daily = 'observed';
+        catAp        = 'observed';
+    else
+        % ---- ON/AFTER simDate -> forecast tiers ----
+        % F10.7 81-day average
+        if days_ahead <= 45
+            catF107avg = 'short';
+        elseif days_ahead <= 540
+            catF107avg = 'medium';
+        else
+            catF107avg = 'long';
+        end
+
+        % F10.7 daily
+        if days_ahead <= 45
+            catF107daily = 'short';
+        elseif days_ahead <= 540
+            catF107daily = 'medium';
+        else
+            catF107daily = 'long';
+        end
+
+        % Ap
+        if days_ahead <= 45
+            catAp = 'short';
+        else
+            catAp = 'monthly';
+        end
+    end
+
 
 %% ========= F10.7 UNCERTAINTY (percent-only; date-dependent; no dummy inits) =========
 % Produces: F107daily_pct_rel, F107avg_pct_rel  (fractions, e.g., 0.042 for 4.2%)
@@ -125,11 +152,11 @@ try
         end
 
         if in45
-            F107daily_pct_rel = T45.Uncertainty_pct(idx45) / 100;     % use as-is
+            F107daily_pct_rel = T45.Uncertainty_pct(idx45) / 100;     
         else % If the date falls out of the observed and 45 day prediction range then the montlhy predicted values will be used along with their uncertainties. 
             Tm = getF107Delta90(dateshift(simDate,'start','month'), dateshift(simDate,'start','month'));
             if isempty(Tm), error("No monthly Δ90 data for %s", string(simDate)); end
-            F107daily_pct_rel = Tm.Delta90_pct(1) / 100;              % use as-is
+            F107daily_pct_rel = Tm.Delta90_pct(1) / 100;             
         end
     end
 
@@ -329,7 +356,7 @@ for k = 1:nTheta
 end
 
 % Plots the altitude vs Drag (percentiles and mean values) for the first incidence angle input. 
-kPlot = 10;  
+kPlot = 1;  
 mean_cd_Dria_1D = mean_cd_Dria(:,kPlot);
 mean_cd_1D      = mean_cd(:,kPlot);
 ci_low_Dria_1D  = ci_low_Dria(:,kPlot);
@@ -1409,6 +1436,83 @@ plot(ax2, alt_km, theta_val + zeros(size(alt_km)), 'k--', 'LineWidth',1.2);
 ylim(ax2, [th_min th_max]); ylabel(ax2,'\theta [deg]');
 yticks(ax2, unique(round([th_min theta_val th_max])));
 
+%% ========= CI width stats (50/70/95%) for DRIA & CLL — % of median C_D =========
+% Uses: cd_MCD, cd_MCCLL [Nsim x nAlt x nTheta], alt_vec, THETA.centers_deg
+% Outputs in CIstats.<MODEL>:
+%   
+CIstats = struct();
+CIstats.DRIA = compute_ci_stats(cd_MCD);
+CIstats.CLL  = compute_ci_stats(cd_MCCLL);
+
+% -------- global min/mean/max --------
+fprintf('=== CI band widths as %% of median C_D (global over all altitudes & angles) ===\n');
+fmt = '  %-4s  %-6s  min=%6.2f%%   mean=%6.2f%%   max=%6.2f%%\n';
+
+fprintf('%s\n','DRIA');
+fprintf(fmt, 'DRIA','50%', CIstats.DRIA.summary.p50.min, CIstats.DRIA.summary.p50.mean, CIstats.DRIA.summary.p50.max);
+fprintf(fmt, 'DRIA','70%', CIstats.DRIA.summary.p70.min, CIstats.DRIA.summary.p70.mean, CIstats.DRIA.summary.p70.max);
+fprintf(fmt, 'DRIA','95%', CIstats.DRIA.summary.p95.min, CIstats.DRIA.summary.p95.mean, CIstats.DRIA.summary.p95.max);
+
+fprintf('%s\n','CLL ');
+fprintf(fmt, 'CLL ','50%', CIstats.CLL.summary.p50.min, CIstats.CLL.summary.p50.mean, CIstats.CLL.summary.p50.max);
+fprintf(fmt, 'CLL ','70%', CIstats.CLL.summary.p70.min, CIstats.CLL.summary.p70.mean, CIstats.CLL.summary.p70.max);
+fprintf(fmt, 'CLL ','95%', CIstats.CLL.summary.p95.min, CIstats.CLL.summary.p95.mean, CIstats.CLL.summary.p95.max);
+
+% === Per-θ print WITH min / mean / max for 50/70/95% bands ===
+th_vec = reshape(THETA.centers_deg, 1, []);   % labels
+
+% DRIA row vectors
+D50min  = reshape(CIstats.DRIA.byTheta.p50.min,  1, []);
+D50mean = reshape(CIstats.DRIA.byTheta.p50.mean, 1, []);
+D50max  = reshape(CIstats.DRIA.byTheta.p50.max,  1, []);
+D70min  = reshape(CIstats.DRIA.byTheta.p70.min,  1, []);
+D70mean = reshape(CIstats.DRIA.byTheta.p70.mean, 1, []);
+D70max  = reshape(CIstats.DRIA.byTheta.p70.max,  1, []);
+D95min  = reshape(CIstats.DRIA.byTheta.p95.min,  1, []);
+D95mean = reshape(CIstats.DRIA.byTheta.p95.mean, 1, []);
+D95max  = reshape(CIstats.DRIA.byTheta.p95.max,  1, []);
+
+% CLL row vectors
+C50min  = reshape(CIstats.CLL.byTheta.p50.min,  1, []);
+C50mean = reshape(CIstats.CLL.byTheta.p50.mean, 1, []);
+C50max  = reshape(CIstats.CLL.byTheta.p50.max,  1, []);
+C70min  = reshape(CIstats.CLL.byTheta.p70.min,  1, []);
+C70mean = reshape(CIstats.CLL.byTheta.p70.mean, 1, []);
+C70max  = reshape(CIstats.CLL.byTheta.p70.max,  1, []);
+C95min  = reshape(CIstats.CLL.byTheta.p95.min,  1, []);
+C95mean = reshape(CIstats.CLL.byTheta.p95.mean, 1, []);
+C95max  = reshape(CIstats.CLL.byTheta.p95.max,  1, []);
+
+% Safe length across all arrays & labels
+nT = min([numel(th_vec), ...
+          numel(D50min), numel(D50mean), numel(D50max), ...
+          numel(D70min), numel(D70mean), numel(D70max), ...
+          numel(D95min), numel(D95mean), numel(D95max), ...
+          numel(C50min), numel(C50mean), numel(C50max), ...
+          numel(C70min), numel(C70mean), numel(C70max), ...
+          numel(C95min), numel(C95mean), numel(C95max)]);
+
+if nT < 1
+    fprintf('\n(No per-θ stats available)\n');
+else
+    fprintf('\n-- DRIA: per-θ band widths (%%%% of median C_D) --\n');
+    for k = 1:nT
+        fprintf('  θ=%3g° | 50%%%%: min=%6.2f  mean=%6.2f  max=%6.2f | 70%%%%: min=%6.2f  mean=%6.2f  max=%6.2f | 95%%%%: min=%6.2f  mean=%6.2f  max=%6.2f\n', ...
+            th_vec(k), D50min(k), D50mean(k), D50max(k), ...
+                       D70min(k), D70mean(k), D70max(k), ...
+                       D95min(k), D95mean(k), D95max(k));
+    end
+
+    fprintf('\n-- CLL : per-θ band widths (%%%% of median C_D) --\n');
+    for k = 1:nT
+        fprintf('  θ=%3g° | 50%%%%: min=%6.2f  mean=%6.2f  max=%6.2f | 70%%%%: min=%6.2f  mean=%6.2f  max=%6.2f | 95%%%%: min=%6.2f  mean=%6.2f  max=%6.2f\n', ...
+            th_vec(k), C50min(k), C50mean(k), C50max(k), ...
+                       C70min(k), C70mean(k), C70max(k), ...
+                       C95min(k), C95mean(k), C95max(k));
+    end
+end
+
+
 
 %% ========= END-OF-RUN SUMMARY =========
 rho_min = min(rho_pct_by_alt); rho_med = median(rho_pct_by_alt); rho_max = max(rho_pct_by_alt);
@@ -1491,11 +1595,79 @@ function p = pick_from_range(rng2, mode)
             p = lo + (hi - lo) * rand;
     end
 end
-%% Diagnostic
-jmid = ceil(nAlt/2);
-sa  = std(alphaN_MC(:,jmid,kPlot),'omitnan');
-ssT = std(sigmaT_MC(:,jmid,kPlot),'omitnan');
-[mina,maxa] = bounds(alphaN_MC(:,jmid,kPlot),'omitnan');
-[minsT,maxsT] = bounds(sigmaT_MC(:,jmid,kPlot),'omitnan');
-fprintf('alphaN std=%.3g, range=[%.3f %.3f];  sigmaT std=%.3g, range=[%.3f %.3f]\n',...
-        sa,mina,maxa, ssT,minsT,maxsT);
+
+function out = compute_ci_stats(CD)
+% out = compute_ci_stats(CD)
+% CD: [Nsim x nAlt x nTheta] Monte-Carlo C_D samples
+% Returns band widths (50/70/95%) as % of the local median C_D,
+% plus global and marginal (per-θ, per-alt) min/mean/max.
+
+    % Percentiles along Monte-Carlo dimension
+    pc = [2.5 15 25 50 75 85 97.5];
+    P  = prctile(CD, pc, 1);  % -> [7 x 1 x nAlt x nTheta]
+
+    % Extract to [nAlt x nTheta]
+    p2    = squeeze(P(1,1,:,:));
+    p15   = squeeze(P(2,1,:,:));
+    p25   = squeeze(P(3,1,:,:));
+    p50   = squeeze(P(4,1,:,:));
+    p75   = squeeze(P(5,1,:,:));
+    p85   = squeeze(P(6,1,:,:));
+    p97_5 = squeeze(P(7,1,:,:));
+
+    % Band widths as % of |median|
+    denom = max(abs(p50), eps);   % guard tiny/zero medians; use magnitude
+    band50 = 100 * (p75   - p25  ) ./ denom;
+    band70 = 100 * (p85   - p15  ) ./ denom;
+    band95 = 100 * (p97_5 - p2   ) ./ denom;
+
+    % Store fields
+    out = struct();
+    out.p50.band_pct = band50;
+    out.p70.band_pct = band70;
+    out.p95.band_pct = band95;
+
+    % Global summary (across all altitudes & thetas)
+    summarize = @(A) struct( ...
+        'min',  min(A(:),[],'omitnan'), ...
+        'mean', mean(A(:),   'omitnan'), ...
+        'max',  max(A(:),[],'omitnan')  );
+    out.summary.p50 = summarize(band50);
+    out.summary.p70 = summarize(band70);
+    out.summary.p95 = summarize(band95);
+
+    % Dimensions
+    nAlt   = size(band50,1);
+    nTheta = size(band50,2);
+
+    % -------- Per-θ (across altitudes) -> row vectors [1 x nTheta] --------
+    out.byTheta.p50.min  = reshape(min( band50, [], 1, 'omitnan'), 1, nTheta);
+    out.byTheta.p50.mean = reshape(mean(band50,      1, 'omitnan'), 1, nTheta);
+    out.byTheta.p50.max  = reshape(max( band50, [], 1, 'omitnan'), 1, nTheta);
+
+    out.byTheta.p70.min  = reshape(min( band70, [], 1, 'omitnan'), 1, nTheta);
+    out.byTheta.p70.mean = reshape(mean(band70,      1, 'omitnan'), 1, nTheta);
+    out.byTheta.p70.max  = reshape(max( band70, [], 1, 'omitnan'), 1, nTheta);
+
+    out.byTheta.p95.min  = reshape(min( band95, [], 1, 'omitnan'), 1, nTheta);
+    out.byTheta.p95.mean = reshape(mean(band95,      1, 'omitnan'), 1, nTheta);
+    out.byTheta.p95.max  = reshape(max( band95, [], 1, 'omitnan'), 1, nTheta);
+
+    % -------- Per-altitude (across thetas) -> column vectors [nAlt x 1] ---
+    out.byAlt.p50.min  = reshape(min( band50, [], 2, 'omitnan'), nAlt, 1);
+    out.byAlt.p50.mean = reshape(mean(band50,      2, 'omitnan'), nAlt, 1);
+    out.byAlt.p50.max  = reshape(max( band50, [], 2, 'omitnan'), nAlt, 1);
+
+    out.byAlt.p70.min  = reshape(min( band70, [], 2, 'omitnan'), nAlt, 1);
+    out.byAlt.p70.mean = reshape(mean(band70,      2, 'omitnan'), nAlt, 1);
+    out.byAlt.p70.max  = reshape(max( band70, [], 2, 'omitnan'), nAlt, 1);
+
+    out.byAlt.p95.min  = reshape(min( band95, [], 2, 'omitnan'), nAlt, 1);
+    out.byAlt.p95.mean = reshape(mean(band95,      2, 'omitnan'), nAlt, 1);
+    out.byAlt.p95.max  = reshape(max( band95, [], 2, 'omitnan'), nAlt, 1);
+
+    % Keep medians/percentiles if you want to inspect later
+    out.median      = p50;
+    out.percentiles = struct('p2_5',p2,'p15',p15,'p25',p25, ...
+                             'p50',p50,'p75',p75,'p85',p85,'p97_5',p97_5);
+end
