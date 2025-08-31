@@ -10,8 +10,7 @@ function T = getF107DailyUncertainty(method, first7)
 % Notes:
 %   • Days 1..7 use your given %: [4.2 6.1 7.8 9.3 10.5 11.7 12.7]
 %   • Days 8..45 are extended via interp1(..., method, 'extrap').
-%   • Robust to one-line SWPT format like:
-%     "45-DAY F10.7 CM FLUX FORECAST 12Aug25 150 13Aug25 145 ... FORECASTER: ...".
+%   
 %
 % Source format confirmed here (single-line with AP + F10.7 blocks). :contentReference[oaicite:0]{index=0}
 
