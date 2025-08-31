@@ -11,6 +11,12 @@
 % Requires on path: environment.m, coeff_DRIA.m, coeff_CLL.m, accom_SESAM.m,
 %                   getF107Predictions.m, getApPredictions.m,
 %                   getF107DailyUncertainty.m, getF107Delta90.m
+% Author: Rafail Panagiotidis
+% The University of Manchester
+% August 2025
+%
+%--- Copyright notice ---%
+% Copyright (C) 2025 The University of Manchester
 
 clear; clc;
 % rng(42); % <- uncomment for reproducible selection of % within ranges
@@ -1671,3 +1677,4 @@ function out = compute_ci_stats(CD)
     out.percentiles = struct('p2_5',p2,'p15',p15,'p25',p25, ...
                              'p50',p50,'p75',p75,'p85',p85,'p97_5',p97_5);
 end
+
