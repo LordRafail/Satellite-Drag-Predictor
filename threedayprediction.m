@@ -17,11 +17,11 @@ Nsim          = 1000;
 alt_vec       = linspace(500e3,1000e3,100);   % m
 lat           = 45;  lon = -75;               % deg
 Tw_nom        = 300;                          % K
-inparam.K_s   = 2.4;
-inparam.m_s   = 65;
+inparam.K_s   = 2.4;                          % SESAM substrate coefficient
+inparam.m_s   = 65;                           % SESAM surface atomic mass [amu]
 
 % Incidence angles
-THETA.centers_deg      = 0:5:45;
+THETA.centers_deg      = 0:45:45;
 THETA.jitter_sigma_deg = 0;
 
 %% ========= CONFIG: uncertainty ranges  =========
@@ -40,12 +40,10 @@ CFG_RHO.base_mean_pct         = 15;
 CFG_RHO.below90km_pct         = 5;
 CFG_RHO.pred_1to5d_multiplier = 2.0;
 CFG_RHO.pred_gt5d_multiplier  = 4.0;
-CFG_RHO.extreme_Ap_threshold  = 40;
-CFG_RHO.extreme_band_km       = [400 500];
-CFG_RHO.extreme_pct_inside    = 100;
-CFG_RHO.extreme_pct_outside   = 80;
 
 sigma_Tw = 50;   % K
+
+CFG_FORCE.forecast_at_simdate = true;   % if true, treat the simDate day as forecast.
 
 %% ========= Handles =========
 envFcn  = @environment;
@@ -84,7 +82,7 @@ rho_total_MC = NaN(Nsim,nAlt,nTheta,nTime);
 % Ap with provenance (nearest-of-two-bin rule, strict precedence)
 [Ap_raw, Ap_binUTC, Ap_src] = getApPredictions(tSweep);
 
-% Quick sanity print
+
 fprintf('\n=== Raw drivers (no MC) over sweep ===\n');
 fprintf('F10.7 81d avg:   min=%.1f  median=%.1f  max=%.1f\n', ...
         min(F107avg_raw,[],'omitnan'), median(F107avg_raw,'omitnan'), max(F107avg_raw,[],'omitnan'));
@@ -159,6 +157,15 @@ for d = 1:nTime
     lead_prev_days = days((simDate_d - days(1)) - todayDate);
     catF107daily   = classifyF107Tier(max(0, lead_prev_days));
     catAp          = classifyApTier  (max(0, lead_prev_days));
+       
+    if CFG_FORCE.forecast_at_simdate
+        if dateshift(simDate_d,'start','day') == dateshift(simDate,'start','day')
+            
+            catF107avg   = 'short';
+            catF107daily = 'short';
+            catAp        = 'short';
+        end
+    end
 
     % F10.7 % 
     if strcmp(catF107daily,'observed')
@@ -866,7 +873,116 @@ legend(ax,'Location','best'); title(ax,'Geomagnetic Ap');
 
 title(tlo, 'Input Drivers vs Time (Mean \pm 95% CI, 3-hour steps)', 'FontWeight','bold','Interpreter','tex');
 
-%% ===== Local helper functions (keep at end of script) =====
+%% ========= Uncertainty as % of median C_D (Observed vs Forecasted) =========
+% Build isPredTime (true if any driver is forecasted) 
+% A timestep is "observed" only if F107avg, F107daily, and Ap are all observed.
+%% ==== Build isPredTime (true if any driver is forecasted) ====
+isPredTime = false(1, nTime);
+
+for d = 1:nTime
+    td = tSweep(d);
+
+    % Classify same as main loop
+    wEnd = dateshift(td,'start','day') + days(40);
+    horizon_days   = max(0, days(wEnd - todayDate));
+    catF107avg     = classifyF107Tier(horizon_days);
+
+    lead_prev_days = days((td - days(1)) - todayDate);
+    catF107daily   = classifyF107Tier(max(0, lead_prev_days));
+    catAp          = classifyApTier(max(0, lead_prev_days));
+
+    % Force forecast if simDate matches this day
+    if CFG_FORCE.forecast_at_simdate && ...
+       dateshift(td,'start','day') == dateshift(simDate,'start','day')
+        catF107avg   = 'short';
+        catF107daily = 'short';
+        catAp        = 'short';
+    end
+
+    % Mark forecasted if ANY driver is not observed
+    isPredTime(d) = ~( strcmp(catF107avg,'observed') && ...
+                       strcmp(catF107daily,'observed') && ...
+                       strcmp(catAp,'observed') );
+end
+
+%% ========= Percentile-band uncertainties (% of median) across all alt & θ =========
+% For each day, collapse over [Nsim × nAlt × nTheta] and compute central p% bands.
+% We report HALF-WIDTH of the band as a % of the same-day median C_D.
+
+pct_levels = [50 70 95];                         % central bands
+nP = numel(pct_levels);
+nTime = numel(tSweep);
+U_D = nan(nTime, nP);                            % DRIA: % half-width of median
+U_C = nan(nTime, nP);                            % CLL : % half-width of median
+
+for d = 1:nTime
+    % Collapse everything except time
+    yD = reshape(cd_MCD(:,:,:,d), [], 1); yD = yD(isfinite(yD));
+    yC = reshape(cd_MCCLL(:,:,:,d), [], 1); yC = yC(isfinite(yC));
+
+    if ~isempty(yD)
+        mD = median(yD, 'omitnan');
+        for k = 1:nP
+            p  = pct_levels(k);
+            pl = (100 - p)/2;  ph = 100 - pl;                 % e.g. 25–75, 15–85, 2.5–97.5
+            q  = prctile(yD, [pl ph]);
+            U_D(d, k) = ((q(2) - q(1)) / (2*abs(mD))) * 100;  % half-width as % of median
+        end
+    end
+
+    if ~isempty(yC)
+        mC = median(yC, 'omitnan');
+        for k = 1:nP
+            p  = pct_levels(k);
+            pl = (100 - p)/2;  ph = 100 - pl;
+            q  = prctile(yC, [pl ph]);
+            U_C(d, k) = ((q(2) - q(1)) / (2*abs(mC))) * 100;
+        end
+    end
+end
+
+% --- Quick console summary (mean over prev/next 3-day windows, if masks exist) ---
+if exist('prevMask','var') && exist('futMask','var')
+    fprintf('\n-- Percentile-band uncertainty (half-width %% of median C_D) --\n');
+    for k = 1:nP
+        fprintf(' DRIA  %2d%% band:  prev3d=%.3g%%   next3d=%.3g%%\n', ...
+                pct_levels(k), mean(U_D(prevMask,k),'omitnan'), mean(U_D(futMask,k),'omitnan'));
+    end
+    for k = 1:nP
+        fprintf(' CLL   %2d%% band:  prev3d=%.3g%%   next3d=%.3g%%\n', ...
+                pct_levels(k), mean(U_C(prevMask,k),'omitnan'), mean(U_C(futMask,k),'omitnan'));
+    end
+end
+
+% --- Plot over calendar time ---
+t_num = datenum(tSweep);
+
+figure('Units','centimeters','Position',[1 1 24 14],'Color','w');
+tlo = tiledlayout(2,1,'TileSpacing','compact','Padding','compact');
+
+% DRIA
+ax = nexttile; hold(ax,'on'); grid(ax,'on'); box(ax,'on');
+plot(ax, t_num, U_D(:,1), '-', 'LineWidth',1.6, 'DisplayName','DRIA 50%');
+plot(ax, t_num, U_D(:,2), '-', 'LineWidth',1.6, 'DisplayName','DRIA 70%');
+plot(ax, t_num, U_D(:,3), '-', 'LineWidth',1.6, 'DisplayName','DRIA 95%');
+ylabel(ax, 'Half-width (% of median)');
+datetick(ax,'x','dd-mmm HH:MM','keeplimits','keepticks');
+xlim(ax, [min(t_num) max(t_num)]);
+legend(ax,'Location','best'); title(ax,'DRIA percentile-band uncertainty');
+
+% CLL
+ax = nexttile; hold(ax,'on'); grid(ax,'on'); box(ax,'on');
+plot(ax, t_num, U_C(:,1), '-', 'LineWidth',1.6, 'DisplayName','CLL 50%');
+plot(ax, t_num, U_C(:,2), '-', 'LineWidth',1.6, 'DisplayName','CLL 70%');
+plot(ax, t_num, U_C(:,3), '-', 'LineWidth',1.6, 'DisplayName','CLL 95%');
+ylabel(ax, 'Half-width (% of median)'); xlabel(ax,'Date/Time (UTC)');
+datetick(ax,'x','dd-mmm HH:MM','keeplimits','keepticks');
+xlim(ax, [min(t_num) max(t_num)]);
+legend(ax,'Location','best'); title(ax,'CLL percentile-band uncertainty');
+
+title(tlo, 'Central percentile-band uncertainties (collapsed over alt & \theta)', 'Interpreter','tex','FontWeight','bold');
+
+%% ===== Local helper functions =====
 function name = classifyF107Tier(h_future_days)
     if h_future_days <= 0, name = 'observed';
     elseif h_future_days <= 45, name = 'short';
@@ -970,6 +1086,123 @@ function drawMosaic(titleStr, meanArr, loArr, hiArr, ylo, yhi, lineColor, ...
         end
     end
 end
+
+%% ========= Daily uncertainty summary (50/70/90) — text only =========
+% For each day in time_vec:
+%   1) For every timestamp that day, and for every (alt,θ), compute the
+%      central-band HALF-WIDTH as % of that cell's median C_D.
+%   2) Average those % values over (alt,θ) to get one % per model per timestamp.
+%   3) Report daily min / mean / max over that day's timestamps.
+%
+% Bands reported: 50%, 70%, 90% (use 90 instead of 95 as requested).
+
+function print_ci_daily_summary(cd_D, cd_C, time_vec)
+    % cd_D, cd_C: DRIA / CLL Monte-Carlo arrays
+    %   size = [Nsim x nAlt x nTheta]           (single date), OR
+    %           [Nsim x nAlt x nTheta x nTime]  (time sweep)
+    % time_vec: datetime array length nTime (required for daily grouping)
+
+    if nargin < 3 || isempty(time_vec)
+        error('print_ci_daily_summary: time_vec (datetime) is required for daily grouping.');
+    end
+
+    pct_levels = [50 70 90];                  % requested bands
+    have_time  = (ndims(cd_D) == 4);
+
+    if ~have_time
+        % Promote to 4-D with a singleton time dimension
+        cd_D = reshape(cd_D, size(cd_D,1), size(cd_D,2), size(cd_D,3), 1);
+        cd_C = reshape(cd_C, size(cd_C,1), size(cd_C,2), size(cd_C,3), 1);
+        if numel(time_vec) ~= 1
+            warning('time_vec has more than one entry; using the first for a single-date run.');
+            time_vec = time_vec(1);
+        end
+    end
+
+    [~, ~, ~, nTime] = size(cd_D);
+    if numel(time_vec) ~= nTime
+        error('time_vec length (%d) must match the 4th dimension of inputs (%d).', numel(time_vec), nTime);
+    end
+
+    % Group by UTC day
+    dayKeys = dateshift(time_vec(:), 'start', 'day');          % column datetime
+    [uniqDays, ~, grpIdx] = unique(dayKeys, 'stable');         % keep input order
+    nDays = numel(uniqDays);
+
+    fprintf('\n=== Daily uncertainty (half-width %% of median C_D), averaged over alt & θ ===\n');
+    fprintf('Bands: %s  (%%)\n\n', strjoin(string(pct_levels), ', '));
+
+    for d = 1:nDays
+        mask = (grpIdx == d);
+        if ~any(mask), continue; end
+        idxs = find(mask).';    % row vector of timestep indices for that day
+
+        % Collect per-timestep, per-band averages over (alt,θ)
+        UbarD = nan(numel(idxs), numel(pct_levels));
+        UbarC = nan(numel(idxs), numel(pct_levels));
+
+        for t = 1:numel(idxs)
+            it = idxs(t);
+            Yd = cd_D(:,:,:,it);   % [Nsim x nAlt x nTheta]
+            Yc = cd_C(:,:,:,it);
+
+            UbarD(t,:) = local_bandpct_mean_over_cells(Yd, pct_levels);
+            UbarC(t,:) = local_bandpct_mean_over_cells(Yc, pct_levels);
+        end
+
+        % Daily stats (per band)
+        stats = @(A) struct('min',min(A,[],1,'omitnan'), ...
+                            'mean',mean(A,1,'omitnan'), ...
+                            'max',max(A,[],1,'omitnan'));
+
+        Sd = stats(UbarD);   % each field is 1×nBands
+        Sc = stats(UbarC);
+
+        % Print one day block
+        fprintf('%s\n', datestr(uniqDays(d), 'yyyy-mm-dd'));
+        for ip = 1:numel(pct_levels)
+            band = pct_levels(ip);
+            fprintf('  DRIA %2d%%%%:  min=%6.3f%%   mean=%6.3f%%   max=%6.3f%%\n', ...
+                band, Sd.min(ip), Sd.mean(ip), Sd.max(ip));
+        end
+        for ip = 1:numel(pct_levels)
+            band = pct_levels(ip);
+            fprintf('  CLL  %2d%%%%:  min=%6.3f%%   mean=%6.3f%%   max=%6.3f%%\n', ...
+                band, Sc.min(ip), Sc.mean(ip), Sc.max(ip));
+        end
+        fprintf('\n');
+    end
+end
+
+% ---- helper (private to this block) ----
+function Ubar = local_bandpct_mean_over_cells(CD, pct_levels)
+    % CD: [Nsim x nAlt x nTheta] at one timestamp
+    [~, nAlt, nTh] = size(CD);
+    nP   = numel(pct_levels);
+    Ubar = nan(1,nP);
+
+    % per-cell % bands
+    Ucell = nan(nAlt, nTh, nP);
+    for j = 1:nAlt
+        for k = 1:nTh
+            y = CD(:,j,k); y = y(isfinite(y));
+            if isempty(y), continue; end
+            m = median(y,'omitnan'); if ~isfinite(m) || m == 0, continue; end
+            for ip = 1:nP
+                p  = pct_levels(ip);
+                pl = (100 - p)/2;  ph = 100 - pl;
+                q  = prctile(y, [pl ph]);
+                Ucell(j,k,ip) = ((q(2) - q(1)) / (2*abs(m))) * 100;  % half-width % of median
+            end
+        end
+    end
+
+    % average across (alt,θ)
+    for ip = 1:nP
+        Ubar(ip) = mean(Ucell(:,:,ip), 'all', 'omitnan');
+    end
+end
+print_ci_daily_summary(cd_MCD, cd_MCCLL, tSweep);
 
 %% ========= END-OF-RUN SUMMARY (±3 days focus) =========
 % Masks around simDate
